@@ -26,7 +26,6 @@ self.addEventListener('message', (event) => {
 
 // 🛠️ 2. Install - สั่งดาวน์โหลดไฟล์
 self.addEventListener('install', event => {
-  // เอา self.skipWaiting() ออกจากตรงนี้ เพื่อไม่ให้มันแย่งอำนาจก่อนได้รับอนุญาต
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       console.log('📦 SW: กำลังสูบไฟล์ลงเครื่อง (PosThaiban V11.2.4)...');
@@ -79,7 +78,7 @@ self.addEventListener('fetch', event => {
 
         return networkResponse;
       }).catch(() => {
-        // 🆘 ด่าน 4: ไม่มีเน็ต และไม่มีในแคช (เช่น เข้าหน้าแปลกๆ) ให้โหลด index.html แทนเพื่อกันจอขาว
+        // 🆘 ด่าน 4: ไม่มีเน็ต และไม่มีในแคช ให้โหลด index.html แทนเพื่อกันจอขาว
         if (event.request.headers.get('accept').includes('text/html')) {
           return caches.match('./index.html');
         }

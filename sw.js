@@ -1,74 +1,55 @@
-// ตั้งชื่อ Cache และกำหนดเวอร์ชัน (ถ้าแก้โค้ดหน้าเว็บ ควรมาเปลี่ยนเลขเวอร์ชันตรงนี้)
-const CACHE_NAME = 'vpos-v11-pro-cache-v1';
+const CACHE_NAME = 'vpos-v11-pro-secure-cache-v1';
 
-// รายชื่อไฟล์และลิงก์ CDN ทั้งหมดที่ต้องดูดเก็บไว้ตั้งแต่วันแรกที่เปิดแอป (มีเน็ต)
-const STATIC_ASSETS = [
-  './',
+// ไฟล์สำคัญที่บังคับต้องจำลงเครื่อง (ถ้าขาด แอปจะไม่รัน)
+const CORE_ASSETS = [
   './index.html',
   './manifest.json',
-  // พลังของ Offline อยู่ตรงนี้: สั่งเก็บ CDN สำคัญลงเครื่อง
-  'https://cdn.tailwindcss.com',
-  'https://unpkg.com/html5-qrcode',
-  'https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;800;900&display=swap'
+  // ถ้ามึงแยกไฟล์ CSS/JS ออกมา ให้ใส่ชื่อไฟล์ตรงนี้ด้วย
 ];
 
-// 1. ขั้นตอน Install: ติดตั้งและดูดไฟล์ทั้งหมดลง Cache
+// 1. ตอนติดตั้งแอป (Install) - โหลดไฟล์ลงเครื่อง
 self.addEventListener('install', event => {
+  self.skipWaiting(); // บังคับอัปเดตทันทีถ้ามีเวอร์ชันใหม่
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[Service Worker] Caching Static Assets');
-      return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting()) // บังคับให้ Service Worker ตัวใหม่เริ่มงานทันทีไม่ต้องรอ
+      console.log('🔒 Secure Cache Activated');
+      return cache.addAll(CORE_ASSETS);
+    })
   );
 });
 
-// 2. ขั้นตอน Activate: ทำความสะอาด Cache เก่า (สำคัญมากเวลาคุณอัปเดตแอป)
+// 2. ตอนล้างไพ่ (Activate) - ลบไฟล์เวอร์ชันเก่าทิ้ง
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cache => {
           if (cache !== CACHE_NAME) {
-            console.log('[Service Worker] Clearing Old Cache:', cache);
-            return caches.delete(cache); // ลบถังเก่าทิ้ง
+            console.log('🗑️ Clearing Old Tampered Cache');
+            return caches.delete(cache);
           }
         })
       );
-    }).then(() => self.clients.claim()) // ให้ Service Worker เข้าคุมหน้าเว็บทันที
+    })
   );
+  self.clients.claim();
 });
 
-// 3. ขั้นตอน Fetch: ดักจับการเรียกไฟล์ (หัวใจหลักตอน Offline)
+// 3. ตอนดึงข้อมูล (Fetch) - โหมด Offline First & Anti-Tamper
 self.addEventListener('fetch', event => {
-  // ข้ามการดักจับถ้าเป็น API หรือไม่ใช่การดึงข้อมูลปกติ (GET)
-  if (event.request.method !== 'GET') return;
-
   event.respondWith(
     caches.match(event.request).then(cachedResponse => {
-      // 3.1 เจอของใน Cache -> ส่งคืนไปเลย (ทำงานตอน Offline ได้ทันที)
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      // 3.2 ไม่เจอใน Cache -> ลองไปดึงจากเน็ตดู
-      return fetch(event.request).then(networkResponse => {
-        // เช็คว่าการดึงข้อมูลสมบูรณ์ไหม ถ้าไม่สมบูรณ์ก็คืนค่าไปตามปกติ
-        if (!networkResponse || networkResponse.status !== 200 || (networkResponse.type !== 'basic' && networkResponse.type !== 'cors')) {
-          return networkResponse;
-        }
-
-        // 3.3 Runtime Caching: แอบเก็บไฟล์ใหม่ที่เพิ่งโหลดมาลง Cache ด้วย
-        // (เช่น พวกไฟล์ฟอนต์ .woff2 ที่ Google Fonts แอบไปดึงมาอีกทอดนึง)
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
+      // ถ้ามีไฟล์ในเครื่อง (Cache) ให้ใช้จากเครื่องเสมอ! 
+      // (กันคนแอบสลับโค้ดผ่านเน็ตเพจ)
+      if (cachedResponse) return cachedResponse;
+      
+      // ถ้าไม่มีในเครื่อง ค่อยวิ่งไปหาจากเน็ต
+      return fetch(event.request).catch(() => {
+        // ถ้าเน็ตหลุดและหาไฟล์ไม่เจอจริงๆ
+        return new Response("ระบบ Offline ทำงาน กรุณาตรวจสอบการเชื่อมต่อ", {
+          status: 503,
+          statusText: "Service Unavailable"
         });
-
-        return networkResponse;
-      }).catch(() => {
-        // กรณี Offline เต็มตัวและหาไฟล์ไม่เจอจริงๆ
-        // ระบบจะเงียบๆ ไว้ ไม่ให้แอป Crash 
-        console.log('[Service Worker] Offline & No Cache Found for:', event.request.url);
       });
     })
   );

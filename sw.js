@@ -1,9 +1,9 @@
 /**
- * VILLAGE POS - Service Worker V11.2.3 (Stable Offline)
- * ระบบเชื่อมโยงการอัปเดต + ทนทานต่อการโหลดไฟล์พลาด
+ * PosThaiban - Service Worker V11.2.4 (The Ultimate Masterpiece)
+ * ระบบเชื่อมโยงการอัปเดต + ทนทานต่อการโหลดไฟล์พลาด + ออฟไลน์สมบูรณ์แบบ
  */
 
-const CACHE_NAME = 'vpos-v11-2-3-stable'; 
+const CACHE_NAME = 'posthaiban-v11-2-4-stable'; 
 
 const CORE_ASSETS = [
   './',
@@ -29,7 +29,7 @@ self.addEventListener('install', event => {
   // เอา self.skipWaiting() ออกจากตรงนี้ เพื่อไม่ให้มันแย่งอำนาจก่อนได้รับอนุญาต
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('📦 SW: กำลังสูบไฟล์ลงเครื่อง (V11.2.3)...');
+      console.log('📦 SW: กำลังสูบไฟล์ลงเครื่อง (PosThaiban V11.2.4)...');
       // ใช้ลอจิกเก็บทีละไฟล์ ป้องกันบั๊ก "ขาด 1 ตายหมู่"
       return Promise.allSettled(
         CORE_ASSETS.map(url => cache.add(url).catch(err => console.error(`SW: โหลดไฟล์ ${url} ไม่สำเร็จ`, err)))

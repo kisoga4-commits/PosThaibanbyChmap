@@ -32,7 +32,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f172a">
     
-    <title>VILLAGE POS V11.2.0</title>
+    <title>VILLAGE POS V11.2.1</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
@@ -55,11 +55,13 @@
         header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
         .keyboard-active #cart-bar { display: none !important; }
         body:not(.pos-active) #cart-bar { display: none !important; }
-        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(225, 29, 72, 0); } 100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); } }
-        .mic-active { animation: pulse-red 1.5s infinite; background-color: #e11d48 !important; }
         #status-badge { transition: all 0.3s ease; }
-        
         .trial-locked { opacity: 0.5; pointer-events: none; filter: grayscale(100%); }
+        
+        /* 🟢 แก้กล้องดำ: บังคับขนาดและรูปแบบของกล้องสแกนบาร์โค้ด */
+        #reader { width: 100% !important; max-width: 400px; margin: auto; background: black; border-radius: 1.5rem; overflow: hidden; border: 4px solid white; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+        #reader video { border-radius: 1.25rem; object-fit: cover; }
+        #reader__dashboard_section_csr span { color: white !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden text-slate-800 pos-active">
@@ -110,7 +112,7 @@
                     <h1 id="display-shop-name" class="font-bold text-lg leading-none italic">ร้านค้าชุมชน</h1>
                     <span id="status-badge" class="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-emerald-500 text-white shadow-sm">Online</span>
                 </div>
-                <p class="text-[9px] opacity-40 tracking-widest mt-1 font-black uppercase">V11.2.0 PRO (STABLE)</p>
+                <p class="text-[9px] opacity-40 tracking-widest mt-1 font-black uppercase">V11.2.1 PRO (OFFLINE CORE)</p>
             </div>
         </div>
         <div class="flex gap-2">
@@ -131,8 +133,7 @@
         <div id="page-pos" class="page space-y-4">
             <div class="flex gap-2">
                 <input type="text" id="search-input" oninput="renderPOS()" onkeydown="handleSearchScanner(event)" onfocus="setKeyboard(true)" onblur="setKeyboard(false)" placeholder="🔍 ค้นหาสินค้า..." class="flex-1 p-3.5 rounded-xl bg-white shadow-sm border border-slate-200 outline-none text-base">
-                <button onclick="toggleVoice()" id="voice-btn" class="bg-rose-500 text-white w-12 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95">🎤</button>
-                <button onclick="startScanner('pos')" class="bg-indigo-600 text-white w-12 rounded-xl flex items-center justify-center shadow-lg active:scale-95">📷</button>
+                <button onclick="startScanner('pos')" class="bg-indigo-600 text-white px-6 rounded-xl flex items-center justify-center shadow-lg active:scale-95 font-bold">📷 สแกน</button>
             </div>
 
             <div id="best-seller-section" class="hidden">
@@ -261,7 +262,12 @@
         </div>
     </div>
 
-    <div id="scanner-modal" class="fixed inset-0 bg-black z-[200] hidden flex flex-col items-center justify-center"><div id="reader" style="width: 100%; max-width: 400px; height: auto;"></div><button onclick="stopScanner()" class="absolute bottom-10 bg-white px-10 py-4 rounded-full font-black text-indigo-600 shadow-2xl">❌ ปิดกล้อง</button></div>
+    <div id="scanner-modal" class="fixed inset-0 bg-black/90 z-[500] hidden flex flex-col items-center justify-center p-4">
+        <h3 class="text-white font-bold mb-4">📷 เล็งบาร์โค้ดให้อยู่ในกรอบ</h3>
+        <div id="reader"></div>
+        <button onclick="stopScanner()" class="mt-8 bg-white px-10 py-4 rounded-full font-black text-indigo-600 shadow-2xl active:scale-95">❌ ปิดกล้อง</button>
+    </div>
+    
     <datalist id="category-list"></datalist>
 
     <script>
@@ -273,7 +279,7 @@
             settings: 'id' 
         });
 
-        // 🟢 --- 2. HARDWARE FINGERPRINTING (CANVAS ID) ---
+        // 🟢 --- 2. HARDWARE FINGERPRINTING ---
         async function getCanvasID() {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -306,7 +312,7 @@
 
         async function initApp() {
             try {
-                // 🟢 บังคับขอสิทธิ์เก็บข้อมูลถาวร (ป้องกันบราวเซอร์ลบข้อมูลตอนความจำเต็ม)
+                // บังคับขอสิทธิ์เก็บข้อมูลถาวร
                 if (navigator.storage && navigator.storage.persist) {
                     const isPersisted = await navigator.storage.persist();
                     console.log(`Persistent storage granted: ${isPersisted}`);
@@ -341,7 +347,6 @@
             }
         }
 
-        // 🟢 ฟังก์ชันปุ่ม Sync ใหม่
         function forceSyncUpdate() {
             if (swRegistration) {
                 swRegistration.update().then(() => {
@@ -393,9 +398,8 @@
         let cart = []; 
         let isAdmin = localStorage.getItem('vpos_admin') === 'true';
         let currentRange = 'today'; let compressedImageBase64 = "";
-        let audioCtx; let recognition; let isListening = false; let html5QrScanner = null;
+        let audioCtx; let html5QrScanner = null;
         let customerWindow = null; 
-        let lastSpeechTime = 0; let lastSpeechText = "";
 
         function applySettingsToUI(conf) {
             document.getElementById('display-shop-name').innerText = conf.shopName;
@@ -718,6 +722,7 @@
         }
         
         function setKeyboard(isOpen) { if(isOpen) document.body.classList.add('keyboard-active'); else setTimeout(() => document.body.classList.remove('keyboard-active'), 100); }
+        
         function playSound(type) {
             if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if(audioCtx.state === 'suspended') audioCtx.resume();
@@ -726,43 +731,6 @@
             if(type === 'success') { osc.type = 'square'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); osc.start(); osc.stop(audioCtx.currentTime + 0.1); } 
             else if(type === 'warn') { osc.type = 'sine'; osc.frequency.setValueAtTime(200, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3); osc.start(); osc.stop(audioCtx.currentTime + 0.3); } 
             else if(type === 'finish') { osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); }
-        }
-
-        // 🟢 Voice API (โครงเดิมที่มึงแก้ interimResults = false ไว้แล้ว)
-        function toggleVoice() {
-            if(!('webkitSpeechRecognition' in window)) return alert("เบราว์เซอร์นี้ไม่รองรับระบบสั่งด้วยเสียงครับ");
-            
-            if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-
-            if(!recognition) {
-                recognition = new webkitSpeechRecognition(); recognition.lang = 'th-TH'; 
-                recognition.interimResults = false; 
-                recognition.continuous = true;
-                
-                recognition.onresult = async (event) => {
-                    for (let i = event.resultIndex; i < event.results.length; ++i) {
-                        if (event.results[i].isFinal) {
-                            const text = event.results[i][0].transcript.trim().toLowerCase();
-                            const now = Date.now();
-                            if (text === lastSpeechText && (now - lastSpeechTime) < 2000) continue; 
-                            lastSpeechText = text; lastSpeechTime = now;
-                            
-                            let p = text; const thaiNums = {'หนึ่ง':1,'สอง':2,'สาม':3,'สี่':4,'ห้า':5,'หก':6,'เจ็ด':7,'แปด':8,'เก้า':9,'สิบ':10};
-                            for(let [k,v] of Object.entries(thaiNums)) p = p.replace(k, v);
-                            const match = p.match(/(.*?)\s*(\d+)?$/);
-                            if(match) {
-                                const inventory = await vdb.inventory.toArray();
-                                const item = inventory.find(inv => inv.name.toLowerCase().includes(match[1].trim()));
-                                if(item) { for(let n=0; n<parseInt(match[2] || 1); n++) addToCart(item.id); } else playSound('warn');
-                            }
-                        }
-                    }
-                };
-                recognition.onend = () => { if(isListening) recognition.start(); };
-            }
-            if(isListening) { isListening = false; recognition.stop(); document.getElementById('voice-btn').classList.remove('mic-active'); }
-            else { isListening = true; recognition.start(); document.getElementById('voice-btn').classList.add('mic-active'); }
         }
 
         // Customer Display
@@ -792,9 +760,62 @@
         async function uploadStaticQR(input) { const f = input.files[0]; if(f){ const r = new FileReader(); r.onload = e => { const img = new Image(); img.onload = async () => { const cvs = document.createElement('canvas'); let w = img.width; let h = img.height; const max = 600; if(w > max || h > max) { if(w > h) { h = Math.round((h * max) / w); w = max; } else { w = Math.round((w * max) / h); h = max; } } cvs.width = w; cvs.height = h; cvs.getContext('2d').drawImage(img, 0, 0, w, h); let conf = await vdb.settings.get('config'); conf.staticQrImg = cvs.toDataURL('image/jpeg', 0.8); await vdb.settings.put(conf); document.getElementById('set-static-qr-preview').src = conf.staticQrImg; document.getElementById('set-static-qr-preview').classList.remove('hidden'); document.getElementById('set-static-qr-label').classList.add('hidden'); }; img.src = e.target.result; }; r.readAsDataURL(f); } }
         async function uploadLogo(input) { const f = input.files[0]; if(f){ const r = new FileReader(); r.onload = e => { const img = new Image(); img.onload = async () => { const cvs = document.createElement('canvas'); let w = img.width; let h = img.height; const max = 150; if(w > max || h > max) { if(w > h) { h = Math.round((h * max) / w); w = max; } else { w = Math.round((w * max) / h); h = max; } } cvs.width = w; cvs.height = h; cvs.getContext('2d').drawImage(img, 0, 0, w, h); let conf = await vdb.settings.get('config'); conf.logo = cvs.toDataURL('image/jpeg', 0.7); await vdb.settings.put(conf); applySettingsToUI(conf); }; img.src = e.target.result; }; r.readAsDataURL(f); } }
         
-        // Scanner (Camera)
-        function startScanner(t) { document.getElementById('scanner-modal').classList.remove('hidden'); html5QrScanner = new Html5Qrcode("reader"); html5QrScanner.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, async (txt) => { if(t === 'pos') { const inventory = await vdb.inventory.toArray(); const i = inventory.find(inv => inv.barcode === txt); if(i) addToCart(i.id); } else { document.getElementById('inv-barcode').value = txt; } stopScanner(); await renderPOS(); }); }
-        function stopScanner() { if(html5QrScanner) html5QrScanner.stop().then(() => { document.getElementById('scanner-modal').classList.add('hidden'); html5QrScanner = null; }); }
+        // 🟢 --- อัปเกรด Scanner (Camera) ให้สแกนไวและติดชัวร์ ---
+        function startScanner(t) { 
+            const modal = document.getElementById('scanner-modal');
+            modal.classList.remove('hidden'); 
+            
+            // รอให้กรอบกล้องโชว์เสร็จก่อน ค่อยเรียกกล้อง (แก้บั๊กจอดำ)
+            setTimeout(async () => {
+                try {
+                    if (html5QrScanner) {
+                        await html5QrScanner.stop().catch(() => {});
+                        html5QrScanner = null;
+                    }
+
+                    html5QrScanner = new Html5Qrcode("reader");
+                    await html5QrScanner.start(
+                        { facingMode: "environment" }, // บังคับกล้องหลัง
+                        { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                        async (txt) => { 
+                            if(t === 'pos') { 
+                                const inventory = await vdb.inventory.toArray(); 
+                                const i = inventory.find(inv => inv.barcode === txt); 
+                                if(i) { 
+                                    addToCart(i.id); 
+                                    playSound('success'); 
+                                } else {
+                                    playSound('warn');
+                                    alert("❌ ไม่พบสินค้าบาร์โค้ด: " + txt);
+                                }
+                            } else { 
+                                document.getElementById('inv-barcode').value = txt; 
+                                playSound('success');
+                            } 
+                            stopScanner(); 
+                            await renderPOS(); 
+                        }
+                    );
+                } catch (err) {
+                    console.error("Camera Error:", err);
+                    alert("กล้องมีปัญหา หรือบราวเซอร์ไม่ได้รับอนุญาตให้ใช้กล้อง");
+                    stopScanner();
+                }
+            }, 300);
+        }
+
+        function stopScanner() { 
+            if(html5QrScanner) {
+                html5QrScanner.stop().then(() => { 
+                    document.getElementById('scanner-modal').classList.add('hidden'); 
+                    html5QrScanner = null; 
+                }).catch(() => {
+                    document.getElementById('scanner-modal').classList.add('hidden'); 
+                });
+            } else {
+                document.getElementById('scanner-modal').classList.add('hidden'); 
+            }
+        }
 
         // เริ่มต้นโปรแกรม
         window.onload = () => { initApp(); };

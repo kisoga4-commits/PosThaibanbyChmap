@@ -2,8 +2,26 @@
 <html lang="th">
 <link rel="manifest" href="manifest.json">
 <script>
+  // 🟢 อัปเกรดระบบ Service Worker ให้รองรับการ Sync และแจ้งเตือนอัปเดต
+  let swRegistration = null;
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js');
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        swRegistration = reg;
+        console.log('SW Registered!', reg);
+        
+        reg.onupdatefound = () => {
+          const installingWorker = reg.installing;
+          installingWorker.onstatechange = () => {
+            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              if(confirm('🎉 พบระบบเวอร์ชันใหม่! ต้องการอัปเดตหน้าจอเดี๋ยวนี้หรือไม่? (ข้อมูลสินค้าไม่หาย)')) {
+                window.location.reload();
+              }
+            }
+          };
+        };
+      }).catch(err => console.error('SW Error:', err));
+    });
   }
 </script>
 <head>
@@ -14,7 +32,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f172a">
     
-    <title>VILLAGE POS V11 PRO</title>
+    <title>VILLAGE POS V11.2.0</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
@@ -92,7 +110,7 @@
                     <h1 id="display-shop-name" class="font-bold text-lg leading-none italic">ร้านค้าชุมชน</h1>
                     <span id="status-badge" class="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-emerald-500 text-white shadow-sm">Online</span>
                 </div>
-                <p class="text-[9px] opacity-40 tracking-widest mt-1 font-black uppercase">V11 PRO</p>
+                <p class="text-[9px] opacity-40 tracking-widest mt-1 font-black uppercase">V11.2.0 PRO (STABLE)</p>
             </div>
         </div>
         <div class="flex gap-2">
@@ -209,7 +227,10 @@
             </div>
             
             <div class="bg-white p-6 rounded-[2.5rem] border shadow-sm space-y-4 text-center">
-                <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">จัดการข้อมูล (ID เครื่อง: <span id="display-settings-hw" class="text-indigo-500 font-mono"></span>)</p>
+                <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">อัปเดต & จัดการข้อมูล (ID: <span id="display-settings-hw" class="text-indigo-500 font-mono"></span>)</p>
+                
+                <button onclick="forceSyncUpdate()" class="w-full bg-emerald-50 text-emerald-600 py-4 rounded-xl font-bold text-xs uppercase active:scale-95 shadow-sm transition-transform border border-emerald-100">🔄 ตรวจสอบเวอร์ชันใหม่ (Sync)</button>
+                
                 <button onclick="exportData()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-xs uppercase active:scale-95 shadow-lg transition-transform">📥 สำรองข้อมูล (Backup)</button>
                 <label id="btn-import-data" class="block w-full bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-xs border border-slate-200 text-center cursor-pointer uppercase active:scale-95 transition-transform">📤 คืนค่า (Import) <input type="file" id="input-import-data" accept=".json" class="hidden" onchange="importData(this)"></label>
                 
@@ -252,7 +273,7 @@
             settings: 'id' 
         });
 
-        // 🟢 --- 2. HARDWARE FINGERPRINTING (CANVAS ID) ห้ามแก้ส่วนนี้เด็ดขาด ---
+        // 🟢 --- 2. HARDWARE FINGERPRINTING (CANVAS ID) ---
         async function getCanvasID() {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -272,7 +293,6 @@
         let currentHWID = "";
         let isFullVersion = false;
         
-        // หั่นรหัสลับเพื่อพรางตาแฮ็คเกอร์ (ประกอบร่างตอนรันเท่านั้น)
         const _0xptr_a = "VLGPRO_"; const _0xptr_b = "SECRET_"; const _0xptr_c = "2026";
         const _getSysK = () => _0xptr_a + _0xptr_b + _0xptr_c;
 
@@ -286,7 +306,11 @@
 
         async function initApp() {
             try {
-                if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
+                // 🟢 บังคับขอสิทธิ์เก็บข้อมูลถาวร (ป้องกันบราวเซอร์ลบข้อมูลตอนความจำเต็ม)
+                if (navigator.storage && navigator.storage.persist) {
+                    const isPersisted = await navigator.storage.persist();
+                    console.log(`Persistent storage granted: ${isPersisted}`);
+                }
 
                 currentHWID = await getCanvasID();
                 document.getElementById('display-hw-id').value = currentHWID;
@@ -294,7 +318,6 @@
 
                 let conf = await vdb.settings.get('config');
                 if (!conf) {
-                    // เริ่มต้นด้วยโหมด offline เสมอ
                     conf = { id: 'config', shopName: "ร้านค้าชุมชน", promptpay: "", bankName: "", password: "admin", logo: "", qrMode: "offline", staticQrImg: "", licenseKey: "" };
                     await vdb.settings.put(conf);
                 }
@@ -306,7 +329,6 @@
                 } else {
                     isFullVersion = false;
                     enforceTrialLimits();
-                    // เอา showLockScreen() ออกเพื่อให้เข้าแอปได้ทันที
                 }
 
                 applySettingsToUI(conf);
@@ -315,24 +337,31 @@
                 showPage('pos'); 
             } catch (e) {
                 console.error("Init Error:", e);
-                alert("เกิดข้อผิดพลาดในการโหลดฐานข้อมูล");
+                alert("เกิดข้อผิดพลาดในการโหลดฐานข้อมูล (คุณอาจใช้โหมดไม่ระบุตัวตน)");
+            }
+        }
+
+        // 🟢 ฟังก์ชันปุ่ม Sync ใหม่
+        function forceSyncUpdate() {
+            if (swRegistration) {
+                swRegistration.update().then(() => {
+                    alert("✅ ตรวจสอบระบบแล้ว! (หากมีเวอร์ชันใหม่เบราว์เซอร์จะแจ้งเตือนให้โหลดใหม่)");
+                }).catch(err => {
+                    alert("⚠️ การตรวจสอบล้มเหลว กรุณาเช็คอินเทอร์เน็ต");
+                });
+            } else {
+                alert("⚠️ ระบบยังไม่พร้อมอัปเดต กรุณารีเฟรชหน้าจอ 1 ครั้ง (ตอนมีเน็ต)");
             }
         }
 
         function enforceTrialLimits() {
             document.getElementById('btn-show-lock').classList.remove('hidden');
-            
-            // ล็อคปุ่ม Import
             document.getElementById('btn-import-data').classList.add('trial-locked');
             document.getElementById('input-import-data').disabled = true;
-
-            // ล็อคโหมด Online QR (ยอมให้อัปรูป Offline ได้)
             document.getElementById('set-pp').readOnly = true;
             document.getElementById('set-pp').classList.add('bg-slate-200');
             document.getElementById('set-qr-mode').value = 'offline';
-            document.getElementById('set-qr-mode').disabled = true; // บังคับเปลี่ยนไม่ได้
-            
-            // ล็อค Report
+            document.getElementById('set-qr-mode').disabled = true; 
             document.getElementById('btn-range-week').classList.add('trial-locked');
             document.getElementById('btn-range-month').classList.add('trial-locked');
             document.getElementById('report-date-select').disabled = true;
@@ -394,7 +423,7 @@
                 conf.promptpay = document.getElementById('set-pp').value;
                 conf.qrMode = document.getElementById('set-qr-mode').value;
             } else {
-                conf.qrMode = 'offline'; // รุ่นทดลองบังคับออฟไลน์
+                conf.qrMode = 'offline'; 
             }
             
             if(document.getElementById('set-pass').value) conf.password = document.getElementById('set-pass').value;
@@ -454,7 +483,7 @@
             if(!isFullVersion && !document.getElementById('edit-id').value) {
                 const count = await vdb.inventory.count();
                 if(count >= 5) {
-                    showLockScreen(); // ดึง Modal เสนอขายขึ้นมาแทน
+                    showLockScreen(); 
                     return;
                 }
             }
@@ -580,7 +609,7 @@
 
         function setReportRange(range) {
             if(!isFullVersion && range !== 'today') {
-                showLockScreen(); // ดึง Modal ขึ้นมาถ้าจะดูย้อนหลัง
+                showLockScreen(); 
                 return;
             }
             currentRange = range;
@@ -635,7 +664,7 @@
             }; reader.readAsText(file); 
         }
 
-        // --- FULL RESTORED FUNCTIONS (Voice, Display, Scanner, Tools) ---
+        // --- FULL RESTORED FUNCTIONS ---
         function showReportTab(tab) {
             document.getElementById('report-log-view').classList.toggle('hidden', tab !== 'log');
             document.getElementById('report-items-view').classList.toggle('hidden', tab !== 'items');
@@ -651,7 +680,7 @@
             document.getElementById('qr-area').classList.remove('hidden'); document.getElementById('qr-paid-btn').classList.remove('hidden'); document.getElementById('bank-info-display').innerText = conf.bankName;
 
             let finalSrc = "";
-            let mode = isFullVersion ? (conf.qrMode || 'online') : 'offline'; // บังคับออฟไลน์ถ้ารุ่นทดลอง
+            let mode = isFullVersion ? (conf.qrMode || 'online') : 'offline'; 
 
             if(mode === 'online') {
                 let pp = conf.promptpay;
@@ -699,17 +728,16 @@
             else if(type === 'finish') { osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); }
         }
 
-        // 🟢 แก้ไข: Voice API เปลี่ยน interimResults = false ให้รอพูดจบก่อน
+        // 🟢 Voice API (โครงเดิมที่มึงแก้ interimResults = false ไว้แล้ว)
         function toggleVoice() {
             if(!('webkitSpeechRecognition' in window)) return alert("เบราว์เซอร์นี้ไม่รองรับระบบสั่งด้วยเสียงครับ");
             
-            // ดักปลุก AudioContext ป้องกันมือถือแบนไมค์
             if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if(audioCtx.state === 'suspended') audioCtx.resume();
 
             if(!recognition) {
                 recognition = new webkitSpeechRecognition(); recognition.lang = 'th-TH'; 
-                recognition.interimResults = false; // 🟢 รอให้พูดจบประโยค ค่อยเพิ่มลงตะกร้า จะได้ไม่รวน
+                recognition.interimResults = false; 
                 recognition.continuous = true;
                 
                 recognition.onresult = async (event) => {

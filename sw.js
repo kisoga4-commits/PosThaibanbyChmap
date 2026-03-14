@@ -1,12 +1,10 @@
 /**
- * VILLAGE POS - Service Worker V11.2.2 (Ultra Offline Core)
- * กลยุทธ์: Cache-First (หยิบของในเครื่องก่อน ไม่สนเน็ต) 
- * เพื่อการันตีว่าแอปจะไม่ขาว และเปิดติด 100% ในที่อับสัญญาณ
+ * VILLAGE POS - Service Worker V11.2.3 (Stable Offline)
+ * ระบบเชื่อมโยงการอัปเดต + ทนทานต่อการโหลดไฟล์พลาด
  */
 
-const CACHE_NAME = 'vpos-v11-2-2-stable'; 
+const CACHE_NAME = 'vpos-v11-2-3-stable'; 
 
-// 🟢 1. เสบียงที่ต้อง "โหลดลงเครื่อง" ให้ครบตั้งแต่วินาทีแรก
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -15,29 +13,39 @@ const CORE_ASSETS = [
   'https://cdn.tailwindcss.com',
   'https://unpkg.com/html5-qrcode',
   'https://unpkg.com/dexie/dist/dexie.js',
-  // เพิ่มฟอนต์ลงแคชด้วย ไม่งั้นตอนออฟไลน์ฟอนต์จะเพี้ยน
   'https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;800;900&display=swap'
 ];
 
-// 🛠️ 1. Install - สั่งดาวน์โหลดไฟล์ทั้งหมดลง "โกดัง" (Cache)
+// 🟢 1. รอรับคำสั่ง "ผลัดใบ" จากหน้า index.html 
+// (พอลูกค้ากด OK ยืนยันอัปเดต ค่อยสั่ง skipWaiting จะได้ไม่รีเฟรชผีหลอก)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// 🛠️ 2. Install - สั่งดาวน์โหลดไฟล์
 self.addEventListener('install', event => {
-  self.skipWaiting(); 
+  // เอา self.skipWaiting() ออกจากตรงนี้ เพื่อไม่ให้มันแย่งอำนาจก่อนได้รับอนุญาต
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('📦 SW: กำลังสูบไฟล์ลงเครื่อง...');
-      return cache.addAll(CORE_ASSETS);
+      console.log('📦 SW: กำลังสูบไฟล์ลงเครื่อง (V11.2.3)...');
+      // ใช้ลอจิกเก็บทีละไฟล์ ป้องกันบั๊ก "ขาด 1 ตายหมู่"
+      return Promise.allSettled(
+        CORE_ASSETS.map(url => cache.add(url).catch(err => console.error(`SW: โหลดไฟล์ ${url} ไม่สำเร็จ`, err)))
+      );
     })
   );
 });
 
-// 🛠️ 2. Activate - ล้างโกดังเก่าทิ้งทันทีที่มีของใหม่
+// 🛠️ 3. Activate - ล้างโกดังเก่าทิ้ง
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => {
       return Promise.all(
         keys.map(key => {
           if (key !== CACHE_NAME) {
-            console.log('🗑️ SW: ลบแคชเก่าทิ้งแล้ว');
+            console.log('🗑️ SW: ลบแคชเวอร์ชันเก่าทิ้งแล้ว ->', key);
             return caches.delete(key);
           }
         })
@@ -47,24 +55,23 @@ self.addEventListener('activate', event => {
   return self.clients.claim(); 
 });
 
-// 🛠️ 3. Fetch - หัวใจของการ Offline 100%
+// 🛠️ 4. Fetch - กลยุทธ์ Cache-First
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
     caches.match(event.request).then(cachedResponse => {
-      // 🛡️ ด่าน 1: ถ้าในเครื่อง (Cache) มีไฟล์นี้อยู่แล้ว ส่งให้หน้าจอทันที! (ไม่ถามเน็ตเลย)
-      if (cachedResponse) {
-        return cachedResponse;
-      }
+      // 🛡️ ด่าน 1: เจอในแคช ส่งให้เลย
+      if (cachedResponse) return cachedResponse;
 
-      // 🌐 ด่าน 2: ถ้าในเครื่องไม่มีจริงๆ (เช่น รูปสินค้าใหม่ๆ) ค่อยไปถามเน็ต
+      // 🌐 ด่าน 2: ไม่เจอในแคช ไปดึงจากเน็ต
       return fetch(event.request).then(networkResponse => {
-        if (!networkResponse || networkResponse.status !== 200) {
+        // ห้ามเก็บไฟล์ที่โหลดไม่สมบูรณ์
+        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
           return networkResponse;
         }
 
-        // 💾 ด่าน 3: ได้ของจากเน็ตมาแล้ว "ถ่ายเอกสาร" เก็บลงเครื่องไว้ใช้รอบหน้าด้วย
+        // 💾 ด่าน 3: ถ่ายเอกสารเก็บลงแคช
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, responseToCache);
@@ -72,8 +79,7 @@ self.addEventListener('fetch', event => {
 
         return networkResponse;
       }).catch(() => {
-        // 🆘 ด่าน 4: ถ้าไม่มีเน็ต + ไม่มีในเครื่อง (เน็ตหลุดกลางคัน)
-        // ส่งหน้าหลัก index.html กลับไปให้ เพื่อไม่ให้หน้าจอขาว
+        // 🆘 ด่าน 4: ไม่มีเน็ต และไม่มีในแคช (เช่น เข้าหน้าแปลกๆ) ให้โหลด index.html แทนเพื่อกันจอขาว
         if (event.request.headers.get('accept').includes('text/html')) {
           return caches.match('./index.html');
         }

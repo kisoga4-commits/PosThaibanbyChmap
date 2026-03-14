@@ -1,45 +1,44 @@
 /**
- * VILLAGE POS - Service Worker V11.2.1 (Ultra Offline Core)
- * ระบบคุมโกดังแบบปิดตาย เน้นออฟไลน์ 100% กล้องต้องติด ข้อมูลต้องไม่หาย
+ * VILLAGE POS - Service Worker V11.2.2 (Ultra Offline Core)
+ * กลยุทธ์: Cache-First (หยิบของในเครื่องก่อน ไม่สนเน็ต) 
+ * เพื่อการันตีว่าแอปจะไม่ขาว และเปิดติด 100% ในที่อับสัญญาณ
  */
 
-const CACHE_NAME = 'vpos-v11-2-1-ultra-offline'; // เปลี่ยนเลขเพื่อบังคับบราวเซอร์ล้างของเก่า
+const CACHE_NAME = 'vpos-v11-2-2-stable'; 
 
-// 🟢 1. เสบียงหลัก (ต้องมีให้ครบ ไม่งั้นแอปพังตอนไม่มีเน็ต)
+// 🟢 1. เสบียงที่ต้อง "โหลดลงเครื่อง" ให้ครบตั้งแต่วินาทีแรก
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './icon.png', // ⚠️ สำคัญมาก! ต้องมีไฟล์ไอคอน ไม่งั้น PWA จะแคลชตอนเปิดแบบออฟไลน์
-  
-  // CDN ทั้งหมดที่ระบบต้องใช้
+  './icon.png',
   'https://cdn.tailwindcss.com',
   'https://unpkg.com/html5-qrcode',
-  'https://unpkg.com/dexie/dist/dexie.js'
+  'https://unpkg.com/dexie/dist/dexie.js',
+  // เพิ่มฟอนต์ลงแคชด้วย ไม่งั้นตอนออฟไลน์ฟอนต์จะเพี้ยน
+  'https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;800;900&display=swap'
 ];
 
-// 🛠️ 1. ตอนติดตั้งแอป - ยัดเสบียงลงกล่อง
+// 🛠️ 1. Install - สั่งดาวน์โหลดไฟล์ทั้งหมดลง "โกดัง" (Cache)
 self.addEventListener('install', event => {
-  console.log('📦 SW: Installing Ultra Offline Cache...');
   self.skipWaiting(); 
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      // ดึงไฟล์ทั้งหมดลงเครื่อง
+      console.log('📦 SW: กำลังสูบไฟล์ลงเครื่อง...');
       return cache.addAll(CORE_ASSETS);
     })
   );
 });
 
-// 🛠️ 2. ตอนเปิดแอป - ทำลายกล่องเสบียงเก่าที่หมดอายุ
+// 🛠️ 2. Activate - ล้างโกดังเก่าทิ้งทันทีที่มีของใหม่
 self.addEventListener('activate', event => {
-  console.log('🚀 SW: Cache V11.2.1 Activated');
   event.waitUntil(
-    caches.keys().then(cacheNames => {
+    caches.keys().then(keys => {
       return Promise.all(
-        cacheNames.map(cache => {
-          if (cache !== CACHE_NAME) {
-            console.log('🗑️ SW: Clearing Old Cache...', cache);
-            return caches.delete(cache);
+        keys.map(key => {
+          if (key !== CACHE_NAME) {
+            console.log('🗑️ SW: ลบแคชเก่าทิ้งแล้ว');
+            return caches.delete(key);
           }
         })
       );
@@ -48,25 +47,24 @@ self.addEventListener('activate', event => {
   return self.clients.claim(); 
 });
 
-// 🛠️ 3. ตอนดึงข้อมูล (Fetch) - หัวใจของระบบ Offline 100%
+// 🛠️ 3. Fetch - หัวใจของการ Offline 100%
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
     caches.match(event.request).then(cachedResponse => {
-      // 🛡️ ด่านที่ 1: มีในเครื่องไหม? ถ้ามี เอาไปใช้เลย! (โคตรไว + ออฟไลน์ชัวร์)
+      // 🛡️ ด่าน 1: ถ้าในเครื่อง (Cache) มีไฟล์นี้อยู่แล้ว ส่งให้หน้าจอทันที! (ไม่ถามเน็ตเลย)
       if (cachedResponse) {
         return cachedResponse;
       }
 
-      // 🌐 ด่านที่ 2: ไม่มีในเครื่อง วิ่งไปดึงจากเน็ต
+      // 🌐 ด่าน 2: ถ้าในเครื่องไม่มีจริงๆ (เช่น รูปสินค้าใหม่ๆ) ค่อยไปถามเน็ต
       return fetch(event.request).then(networkResponse => {
-        // ⚠️ ปลดล็อคให้เก็บไฟล์ CDN (CORS/Opaque) ได้แล้ว กล้อง/ฐานข้อมูลจะได้ไม่ตาย
-        if (!networkResponse || (networkResponse.status !== 200 && networkResponse.type !== 'opaque')) {
+        if (!networkResponse || networkResponse.status !== 200) {
           return networkResponse;
         }
 
-        // 💾 ด่านที่ 3: ได้ของมาแล้ว ถ่ายเอกสารเก็บลงเครื่องไว้ใช้รอบหน้า
+        // 💾 ด่าน 3: ได้ของจากเน็ตมาแล้ว "ถ่ายเอกสาร" เก็บลงเครื่องไว้ใช้รอบหน้าด้วย
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, responseToCache);
@@ -74,8 +72,8 @@ self.addEventListener('fetch', event => {
 
         return networkResponse;
       }).catch(() => {
-        // 🆘 ด่านที่ 4: เน็ตหลุด + ของไม่มีในเครื่อง
-        // ถ้าสิ่งที่พยายามเปิดคือหน้าเว็บ ให้เด้งกลับไป index.html (กันหน้าขาว)
+        // 🆘 ด่าน 4: ถ้าไม่มีเน็ต + ไม่มีในเครื่อง (เน็ตหลุดกลางคัน)
+        // ส่งหน้าหลัก index.html กลับไปให้ เพื่อไม่ให้หน้าจอขาว
         if (event.request.headers.get('accept').includes('text/html')) {
           return caches.match('./index.html');
         }

@@ -1,37 +1,38 @@
 /**
- * VILLAGE POS - Service Worker V11.2.0 (Stable Offline)
- * ระบบจัดการแคชเน้นทำงานออฟไลน์เป็นหลัก และรองรับการ Sync อัปเดต
+ * VILLAGE POS - Service Worker V11.2.1 (Ultra Offline Core)
+ * ระบบคุมโกดังแบบปิดตาย เน้นออฟไลน์ 100% กล้องต้องติด ข้อมูลต้องไม่หาย
  */
 
-const CACHE_NAME = 'vpos-v11-2-0-stable'; // เปลี่ยนเลขตรงนี้ทุกครั้งที่มึงอยากให้ลูกค้ากด "ซิงค์" แล้วได้ของใหม่
+const CACHE_NAME = 'vpos-v11-2-1-ultra-offline'; // เปลี่ยนเลขเพื่อบังคับบราวเซอร์ล้างของเก่า
 
-// 🟢 1. รายการ "เสบียง" (Assets) ที่ต้องสูบลงเครื่องให้ครบเพื่อรันแบบ Offline
+// 🟢 1. เสบียงหลัก (ต้องมีให้ครบ ไม่งั้นแอปพังตอนไม่มีเน็ต)
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  // --- ไฟล์ภายนอก (CDN) ต้องระบุ URL เต็มเพื่อให้ SW สูบลงแคชได้ ---
+  './icon.png', // ⚠️ สำคัญมาก! ต้องมีไฟล์ไอคอน ไม่งั้น PWA จะแคลชตอนเปิดแบบออฟไลน์
+  
+  // CDN ทั้งหมดที่ระบบต้องใช้
   'https://cdn.tailwindcss.com',
   'https://unpkg.com/html5-qrcode',
-  'https://unpkg.com/dexie/dist/dexie.js',
-  'https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;800;900&display=swap'
+  'https://unpkg.com/dexie/dist/dexie.js'
 ];
 
-// 🛠️ 1. ตอนติดตั้งแอป (Install) - บังคับโหลด CORE_ASSETS ลงแคชทันที
+// 🛠️ 1. ตอนติดตั้งแอป - ยัดเสบียงลงกล่อง
 self.addEventListener('install', event => {
-  console.log('📦 SW: Installing Stable Cache...');
-  self.skipWaiting(); // บังคับให้ SW ตัวใหม่ทำงานทันที ไม่ต้องรอปิดแอป
+  console.log('📦 SW: Installing Ultra Offline Cache...');
+  self.skipWaiting(); 
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      // ใช้ addAll เพื่อสูบไฟล์ที่ระบุไว้ลงเครื่อง
+      // ดึงไฟล์ทั้งหมดลงเครื่อง
       return cache.addAll(CORE_ASSETS);
     })
   );
 });
 
-// 🛠️ 2. ตอนเปิดใช้งาน (Activate) - ล้างแคชเก่าที่หมดอายุ
+// 🛠️ 2. ตอนเปิดแอป - ทำลายกล่องเสบียงเก่าที่หมดอายุ
 self.addEventListener('activate', event => {
-  console.log('🚀 SW: Cache V11.2.0 Activated');
+  console.log('🚀 SW: Cache V11.2.1 Activated');
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
@@ -44,29 +45,28 @@ self.addEventListener('activate', event => {
       );
     })
   );
-  return self.clients.claim(); // ควบคุม Browser ทุกหน้าต่างทันที
+  return self.clients.claim(); 
 });
 
-// 🛠️ 3. ตอนดึงข้อมูล (Fetch) - หัวใจของระบบ Offline
+// 🛠️ 3. ตอนดึงข้อมูล (Fetch) - หัวใจของระบบ Offline 100%
 self.addEventListener('fetch', event => {
-  // ไม่ยุ่งกับคำสั่งที่ไม่ใช่การดึงข้อมูล (GET)
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
     caches.match(event.request).then(cachedResponse => {
-      // 🛡️ ด่านที่ 1: ถ้ามีไฟล์ในเครื่อง (Cache) ให้ใช้จากเครื่องทันที! (เร็วและ Offline ชัวร์)
+      // 🛡️ ด่านที่ 1: มีในเครื่องไหม? ถ้ามี เอาไปใช้เลย! (โคตรไว + ออฟไลน์ชัวร์)
       if (cachedResponse) {
         return cachedResponse;
       }
 
-      // 🌐 ด่านที่ 2: ถ้าไม่มีในเครื่อง (เช่น รูปที่เพิ่งโหลด) ให้ไปดึงจากเน็ต
+      // 🌐 ด่านที่ 2: ไม่มีในเครื่อง วิ่งไปดึงจากเน็ต
       return fetch(event.request).then(networkResponse => {
-        // ตรวจสอบว่า response ปกติไหม (ถ้าไม่ปกติไม่ต้องเก็บแคช)
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+        // ⚠️ ปลดล็อคให้เก็บไฟล์ CDN (CORS/Opaque) ได้แล้ว กล้อง/ฐานข้อมูลจะได้ไม่ตาย
+        if (!networkResponse || (networkResponse.status !== 200 && networkResponse.type !== 'opaque')) {
           return networkResponse;
         }
 
-        // 💾 ด่านที่ 3: โหลดมาแล้ว "จำ" ลงเครื่องอัตโนมัติ (Dynamic Caching)
+        // 💾 ด่านที่ 3: ได้ของมาแล้ว ถ่ายเอกสารเก็บลงเครื่องไว้ใช้รอบหน้า
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, responseToCache);
@@ -74,8 +74,8 @@ self.addEventListener('fetch', event => {
 
         return networkResponse;
       }).catch(() => {
-        // 🆘 ด่านที่ 4: ถ้าเน็ตหลุด + หาไฟล์ไม่เจอ (เช่น เข้าหน้า URL แปลกๆ)
-        // ให้ส่งหน้า index.html กลับไปเสมอ เพื่อป้องกันแอปค้างหน้าขาว
+        // 🆘 ด่านที่ 4: เน็ตหลุด + ของไม่มีในเครื่อง
+        // ถ้าสิ่งที่พยายามเปิดคือหน้าเว็บ ให้เด้งกลับไป index.html (กันหน้าขาว)
         if (event.request.headers.get('accept').includes('text/html')) {
           return caches.match('./index.html');
         }

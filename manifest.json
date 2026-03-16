@@ -10,7 +10,12 @@
   "theme_color": "#0f172a",
   "orientation": "portrait-primary",
   "lang": "th",
-  "categories": ["business", "finance", "productivity"],
+  "categories": [
+    "business",
+    "finance",
+    "productivity",
+    "shopping"
+  ],
   "icons": [
     {
       "src": "./icon.png",
